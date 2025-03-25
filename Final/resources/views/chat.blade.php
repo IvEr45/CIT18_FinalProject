@@ -5,39 +5,26 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Meal Planner</title>
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <style>
-        body { 
-            font-family: Arial, sans-serif; 
-            padding: 20px; 
-            display: flex; 
-            justify-content: center; 
-            gap: 20px; 
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            gap: 20px;
         }
-        #edit-title {
-    width: 100%;
-    font-size: 18px;
-    padding: 5px;
-}
-
-#edit-ingredients, #edit-instructions {
-    width: 100%;
-    height: 200px;
-    font-size: 16px;
-    padding: 5px;
-    resize: vertical; /* Allows resizing if needed */
-}
-
-        
-        #recipe-list-box {
-            width: 25%;
+        #recipe-list-box, #chat-container, #recipe-box {
             border: 1px solid #ccc;
             padding: 10px;
             background: #f9f9f9;
             text-align: left;
-            height: 300px;
+            height: 400px;
             overflow-y: auto;
         }
-
+        #recipe-list-box { width: 25%; }
+        #chat-container { width: 50%; }
+        #recipe-box { width: 30%; }
         .recipe-item {
             padding: 10px;
             margin-bottom: 5px;
@@ -45,25 +32,11 @@
             border: 1px solid #ddd;
             cursor: pointer;
         }
-
-        #chat-container { width: 50%; }
-        #chat-box { width: 100%; border: 1px solid #ccc; padding: 10px; min-height: 200px; text-align: left; }
-        
-        .message { margin: 5px 0; padding: 5px; }
-        .user { background: #cce5ff; text-align: right; }
-        .ai { background: #e2e3e5; text-align: left; }
-        
-        #recipe-box {
-            width: 30%; 
-            border: 1px solid #ccc; 
-            padding: 10px; 
-            display: none; 
-            text-align: left; 
-            background: #f9f9f9;
+        .recipe-buttons button {
+            margin-top: 10px;
+            padding: 5px;
+            cursor: pointer;
         }
-        #recipe-title { font-weight: bold; font-size: 18px; margin-bottom: 10px; }
-        #save-btn { background: #28a745; color: white; border: none; padding: 5px 10px; cursor: pointer; margin-top: 10px; }
-        #save-btn:hover { background: #218838; }
     </style>
 </head>
 <body>
@@ -82,40 +55,47 @@
 
     <div id="recipe-box">
         <h2 id="recipe-title">Recipe</h2>
-        <p id="recipe-content"></p>
-        <button id="save-btn">Save Recipe</button>
+        <p id="recipe-content">Select a recipe to view details.</p>
+        <div class="recipe-buttons">
+            <button id="save-btn">Save</button>
+            <button id="edit-btn">Edit</button>
+            <button id="delete-btn">Delete</button>
+        </div>
     </div>
 
     <script>
-    $(document).ready(function() {
+    $(document).ready(function () {
         loadRecipes();
     });
 
     function loadRecipes() {
-    $.get('/recipes', function(data) {
-        let recipeList = $('#recipe-list');
-        recipeList.empty();
+        $.get('/recipes', function (data) {
+            let recipeList = $('#recipe-list');
+            recipeList.empty();
 
-        if (data.length === 0) {
-            recipeList.append("<p>No recipes saved yet.</p>");
-        } else {
-            data.forEach(recipe => {
-                recipeList.append(`
-                    <div class="recipe-item">
-                        <strong>${recipe.title}</strong>
-                        <button class="edit-btn" onclick="editRecipe(${recipe.id}, \`${recipe.title}\`, \`${recipe.ingredients}\`, \`${recipe.instructions}\`)">✏️</button>
-                        <button class="delete-btn" onclick="deleteRecipe(${recipe.id})">🗑️</button>
-                        <div onclick="showRecipe(\`${recipe.title}\`, \`${recipe.ingredients}\`, \`${recipe.instructions}\`)">
-                            <small>Click to view</small>
+            if (data.length === 0) {
+                recipeList.append("<p>No recipes saved yet.</p>");
+            } else {
+                data.forEach(recipe => {
+                    recipeList.append(`
+                        <div class="recipe-item" data-id="${recipe.id}" data-title="${recipe.title}" 
+                            data-ingredients="${recipe.ingredients}" data-instructions="${recipe.instructions}">
+                            <strong>${recipe.title}</strong>
                         </div>
-                    </div>
-                `);
-            });
-        }
+                    `);
+                });
+            }
+        });
+    }
+
+    $(document).on('click', '.recipe-item', function () {
+        let id = $(this).data('id');
+        let title = $(this).data('title');
+        let ingredients = $(this).data('ingredients');
+        let instructions = $(this).data('instructions');
+
+        displayRecipe(id, title, ingredients, instructions);
     });
-}
-
-
 
     function sendMessage() {
         let userMessage = $('#user-input').val();
@@ -128,9 +108,6 @@
             let recipe = data.recipe;
 
             if (recipe.includes("Ingredients") && recipe.includes("Instructions")) {
-                $('#recipe-box').show();
-                $('#recipe-content').html(recipe.replace(/\n/g, "<br>"));
-
                 let titleMatch = recipe.match(/^(.*?)[\n]/);
                 let ingredientsMatch = recipe.match(/Ingredients:(.*?)Instructions:/s);
                 let instructionsMatch = recipe.match(/Instructions:(.*)/s);
@@ -139,92 +116,98 @@
                 let ingredients = ingredientsMatch ? ingredientsMatch[1].trim() : "";
                 let instructions = instructionsMatch ? instructionsMatch[1].trim() : "";
 
-                $('#save-btn').off('click').on('click', function () {
-                    saveRecipe(title, ingredients, instructions);
-                });
+                displayRecipe(null, title, ingredients, instructions);
             } else {
                 $('#chat-box').append(`<div class="message ai">${recipe}</div>`);
             }
         });
     }
 
-    function saveRecipe(title, ingredients, instructions) {
-        $.post('/save-recipe', {
-            title: title,
-            ingredients: ingredients,
-            instructions: instructions,
-            _token: '{{ csrf_token() }}'
-        }, function(response) {
-            alert(response.message);
-            loadRecipes(); // Reload saved recipes after saving
-        });
+    function displayRecipe(id, title, ingredients, instructions) {
+        $('#recipe-title').text(title);
+        $('#recipe-content').html(`
+            <strong>Ingredients:</strong> <br> ${ingredients.replace(/\n/g, "<br>")} <br><br>
+            <strong>Instructions:</strong> <br> ${instructions.replace(/\n/g, "<br>")}
+        `);
+
+        $('.recipe-buttons').html(`
+            <button id="save-btn">Save</button>
+            ${id ? `<button id="edit-btn" data-id="${id}">Edit</button>` : ''}
+            ${id ? `<button id="delete-btn" data-id="${id}">Delete</button>` : ''}
+        `);
     }
 
-    function showRecipe(title, ingredients, instructions) {
-    $('#recipe-box').show();
-    $('#recipe-title').text(title);
-    $('#recipe-content').html(`
-        <strong>Ingredients:</strong> <br> ${ingredients.replace(/\n/g, "<br>")} <br><br>
-        <strong>Instructions:</strong> <br> ${instructions.replace(/\n/g, "<br>")}
-    `);
-}
-    function deleteRecipe(id) {
-    if (!confirm("Are you sure you want to delete this recipe?")) return;
+    $(document).on('click', '#save-btn', function () {
+        let title = $('#recipe-title').text();
+        let ingredients = $('#recipe-content').html().replace(/<br>/g, "\n");
+        let instructions = $('#recipe-content').html().replace(/<br>/g, "\n");
 
-    $.ajax({
-        url: `/recipes/${id}`,
-        type: 'DELETE',
-        data: { _token: '{{ csrf_token() }}' }, 
-        success: function(response) {
+        $.post('/save-recipe', { title, ingredients, instructions, _token: '{{ csrf_token() }}' }, function (response) {
             alert(response.message);
-            loadRecipes(); // Refresh the recipe list after deletion
-        },
-        error: function(xhr) {
-            alert("Error: " + xhr.responseJSON.message);
-        }
+            loadRecipes();
+        });
     });
-}
-function editRecipe(id, title, ingredients, instructions) {
-    $('#recipe-box').show();
-    $('#recipe-title').html(`<input type="text" id="edit-title" value="${title}" style="width: 100%; font-size: 18px; padding: 5px;" />`);
-    $('#recipe-content').html(`
-        <strong>Ingredients:</strong><br> 
-        <textarea id="edit-ingredients" style="width: 100%; height: 150px; font-size: 16px; padding: 5px;">${ingredients}</textarea><br><br>
-        <strong>Instructions:</strong><br> 
-        <textarea id="edit-instructions" style="width: 100%; height: 200px; font-size: 16px; padding: 5px;">${instructions}</textarea><br><br>
-        <button onclick="updateRecipe(${id})" id="update-btn" style="padding: 10px; font-size: 16px; cursor: pointer;">Save Changes</button>
-    `);
-}
 
-function updateRecipe(id) {
-    let updatedTitle = $('#edit-title').val();
-    let updatedIngredients = $('#edit-ingredients').val();
-    let updatedInstructions = $('#edit-instructions').val();
+    $(document).on('click', '#edit-btn', function () {
+        let id = $(this).data('id');
+        let title = $('#recipe-title').text();
+        let ingredients = $('#recipe-content').text();
+        let instructions = $('#recipe-content').text();
 
-    $.ajax({
-        url: `/recipes/${id}`,
-        type: 'PUT',
-        data: {
-            title: updatedTitle,
-            ingredients: updatedIngredients,
-            instructions: updatedInstructions,
-            _token: '{{ csrf_token() }}'
-        },
-        success: function(response) {
-            alert(response.message);
-            loadRecipes(); 
-            $('#recipe-box').hide(); 
-        },
-        error: function(xhr) {
-            alert("Error: " + xhr.responseJSON.message);
-        }
+        $('#recipe-title').html(`<input type="text" id="edit-title" value="${title}" />`);
+        $('#recipe-content').html(`
+            <strong>Ingredients:</strong><br> 
+            <textarea id="edit-ingredients">${ingredients}</textarea><br><br>
+            <strong>Instructions:</strong><br> 
+            <textarea id="edit-instructions">${instructions}</textarea><br><br>
+        `);
+
+        $('.recipe-buttons').html(`<button id="update-btn" data-id="${id}">Save Changes</button>`);
     });
-}
 
+    $(document).on('click', '#update-btn', function () {
+        let id = $(this).data('id');
+        let updatedTitle = $('#edit-title').val();
+        let updatedIngredients = $('#edit-ingredients').val();
+        let updatedInstructions = $('#edit-instructions').val();
 
+        $.ajax({
+            url: `/recipes/${id}`,
+            type: 'PUT',
+            data: {
+                title: updatedTitle,
+                ingredients: updatedIngredients,
+                instructions: updatedInstructions,
+                _token: $('meta[name="csrf-token"]').attr('content')
+            },
+            success: function (response) {
+                alert(response.message);
+                loadRecipes();
+                displayRecipe(id, updatedTitle, updatedIngredients, updatedInstructions);
+            },
+            error: function (xhr) {
+                alert("Error: " + xhr.responseJSON.message);
+            }
+        });
+    });
 
+    $(document).on('click', '#delete-btn', function () {
+        let id = $(this).data('id');
+        if (!confirm("Are you sure you want to delete this recipe?")) return;
+
+        $.ajax({
+            url: `/recipes/${id}`,
+            type: 'DELETE',
+            data: { _token: '{{ csrf_token() }}' },
+            success: function (response) {
+                alert(response.message);
+                loadRecipes();
+                $('#recipe-title').text("Recipe");
+                $('#recipe-content').html("Select a recipe to view details.");
+                $('.recipe-buttons').html('');
+            }
+        });
+    });
     </script>
-
 </body>
 </html>
-
